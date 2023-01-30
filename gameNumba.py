@@ -2,7 +2,35 @@ import numpy as np
 import random
 import time
 import numba
+import math
 from numba import jit  # jit convertit une fonction python => fonction C
+
+# MCTS parameters
+c = 2 
+nSimulations = 1000
+
+def UCT(node):
+    if node.visits == 0 : return math.inf
+    return node.mean + c * np.sqrt(np.log(node.parent.visits) / node.visits)
+
+class Node:
+    def __init__(self, parent, idMove):
+        self.parent = parent
+        self.idMove = idMove
+        self.children = []
+        self.visits = 0
+        self.wins = 0
+        self.mean = 0
+    
+    def add_child(self, childNode):
+        self.children.append(childNode)
+
+    def update(self, result):
+        self.visits += 1
+        self.wins += result
+        self.mean = self.wins / self.visits
+
+
 
 ###################################################################
 
@@ -41,8 +69,6 @@ def DecodeIDmove(IDmove):
 # B[-1] : number of possible moves
 # B[-2] : reserved
 # B[-3] : current player
-
-
 
 
 StartingBoard  = np.zeros(144,dtype=np.uint8)
@@ -146,7 +172,7 @@ def Print(B):
 
 
     nbMoves = B[-1]
-    print("Possible moves :", nbMoves);
+    print("Possible moves :", nbMoves)
     s = ''
     for i in range(nbMoves):
         s += str(B[i]) + ' '
@@ -154,79 +180,56 @@ def Print(B):
 
 
 
-def PlayoutDebug(B,verbose=False):
+def PlayoutDebug(B,idMove):
     Print(B)
     while not Terminated(B):
-        id = random.randint(0,B[-1]-1)
-        idMove = B[id]
+    
         player,x,y = DecodeIDmove(idMove)
         print("Playing : ",idMove, " -  Player: ",player, "  X:",x," Y:",y)
         Play(B,idMove)
         Print(B)
         print("---------------------------------------")
 
+def MCTS(node, B, player, simulations):
+    if Terminated(B) or simulations == 0:
+        return GetScore(B)
 
-################################################################
-#
-#  Version Debug Demo pour affichage et test
+    if node.visits == 0:
+        # si le noeud n'a pas été visité, on calcule tous les moves possibles
+        for i in range(B[-1]):
+            idMove = B[i]
+            childB = B.copy()
+            Play(childB, idMove)
+            childNode = Node(node, idMove)
+            node.add_child(childNode)
+    
+    nextNode = sorted(node.children, key=UCT, reverse=True)[0]
+    nextB = B.copy()
+    Play(nextB, nextNode.idMove)
+
+    # joueur suivant
+    result = -MCTS(nextNode, nextB, 1-player, simulations-1)
+
+    node.update(result)
+
+    return result
+
+def PlayMCTS(B, player):
+    root = Node(None, None)
+    for i in range(nSimulations):
+        result = MCTS(root, B, player, 100)
+
+    # Choix du meilleur noeud
+    bestNode = sorted(root.children, key=lambda x: x.visits, reverse=True)[0]
+    bestMove = bestNode.idMove
+    return bestMove
 
 B = StartingBoard.copy()
-PlayoutDebug(B,True)
-print("Score : ",GetScore(B))
-print("")
 
+while not Terminated(B):
+    idMove = PlayMCTS(B, B[-3])
+    Play(B, idMove)
+    Print(B)
+    print("---------------------------------------")
 
-################################################################
-#
-#   utilisation de numba => 100 000 parties par seconde
-
-print("Test perf Numba")
-
-T0 = time.time()
-nbSimus = 0
-while time.time()-T0 < 2:
-    B = StartingBoard.copy()
-    Playout(B)
-    nbSimus+=1
-print("Nb Sims / second:",nbSimus/2)
-
-
-################################################################
-#
-#   utilisation de numba +  multiprocess => 1 000 000 parties par seconde
-
-print()
-print("Test perf Numba + parallélisme")
-
-@numba.jit(nopython=True, parallel=True)
-def ParrallelPlayout(nb):
-    Scores = np.empty(nb)
-    for i in numba.prange(nb):
-        B = StartingBoard.copy()
-        Playout(B)
-        Scores[i] = GetScore(B)
-    return Scores.mean()
-
-
-
-nbSimus = 10 * 1000 * 1000
-T0 = time.time()
-MeanScores = ParrallelPlayout(nbSimus)
-T1 = time.time()
-dt = T1-T0
-
-print("Nb Sims / second:", int(nbSimus / dt ))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+print("le joueur gagnant est : ",B[-3])
