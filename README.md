@@ -1,3 +1,3 @@
 # Domineering
 
-Tafa sakho - William preux - Pierre alla
+Tafa SAKHO - William PREUX - Pierre ALLA
